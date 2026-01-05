@@ -1,15 +1,15 @@
 {
   "files": {
-    "main.css": "/sys-scholar/static/css/main.14d560e6.css",
-    "main.js": "/sys-scholar/static/js/main.8de7328e.js",
-    "static/js/11.7ffdb278.chunk.js": "/sys-scholar/static/js/11.7ffdb278.chunk.js",
-    "index.html": "/sys-scholar/index.html",
-    "main.14d560e6.css.map": "/sys-scholar/static/css/main.14d560e6.css.map",
-    "main.8de7328e.js.map": "/sys-scholar/static/js/main.8de7328e.js.map",
-    "11.7ffdb278.chunk.js.map": "/sys-scholar/static/js/11.7ffdb278.chunk.js.map"
+    "main.css": "/sys-scholar-2/static/css/main.14d560e6.css",
+    "main.js": "/sys-scholar-2/static/js/main.2c0bb790.js",
+    "static/js/11.7ffdb278.chunk.js": "/sys-scholar-2/static/js/11.7ffdb278.chunk.js",
+    "index.html": "/sys-scholar-2/index.html",
+    "main.14d560e6.css.map": "/sys-scholar-2/static/css/main.14d560e6.css.map",
+    "main.2c0bb790.js.map": "/sys-scholar-2/static/js/main.2c0bb790.js.map",
+    "11.7ffdb278.chunk.js.map": "/sys-scholar-2/static/js/11.7ffdb278.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.14d560e6.css",
-    "static/js/main.8de7328e.js"
+    "static/js/main.2c0bb790.js"
   ]
 }
