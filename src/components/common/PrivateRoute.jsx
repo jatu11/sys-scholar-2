@@ -1,11 +1,23 @@
 import React, { useContext } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 
 const PrivateRoute = ({ children, adminOnly = false }) => {
   const { currentUser, loading } = useContext(AuthContext);
+  const location = useLocation();
+
+  // AGREGAR ESTOS LOGS
+  console.log('🔒 PrivateRoute - INICIO:', {
+    pathname: location.pathname,
+    loading: loading,
+    hasCurrentUser: !!currentUser,
+    currentUserEmail: currentUser?.email,
+    currentUserUID: currentUser?.uid,
+    timestamp: new Date().toISOString()
+  });
 
   if (loading) {
+    console.log('⏳ PrivateRoute: Loading...');
     return (
       <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '80vh' }}>
         <div className="spinner-border text-primary" role="status">
@@ -16,13 +28,12 @@ const PrivateRoute = ({ children, adminOnly = false }) => {
   }
 
   if (!currentUser) {
-    return <Navigate to="/login" />;
+    console.log('❌ PrivateRoute: NO HAY USUARIO, redirigiendo a /login');
+    console.log('📍 Desde:', location.pathname);
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
 
-  if (adminOnly && currentUser.rol !== 'admin') {
-    return <Navigate to="/dashboard" />;
-  }
-
+  console.log('✅ PrivateRoute: ACCESO PERMITIDO para:', currentUser.email);
   return children;
 };
 

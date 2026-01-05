@@ -1,144 +1,146 @@
-import React, { useContext } from 'react';
-import { AuthContext } from '../../context/AuthContext';
-import { startModule } from '../../services/dashboardService';
+// src/components/student/ModuleCard.jsx - VERSIÓN MEJORADA
+import React from 'react';
+import '../../styles/ModuleCard.css';
 
 const ModuleCard = ({ module, onClick }) => {
-  const { currentUser } = useContext(AuthContext);
+  // Determinar qué mostrar según el estado
+  const isCompleted = module.estado === 'aprobado' || module.estado === 'reprobado';
+  const isInProgress = module.estado === 'en-progreso';
+  const isPending = module.estado === 'pendiente';
   
-  const getStatusConfig = (status) => {
-    const configs = {
-      'completed': {
-        label: 'Completado',
-        color: '#16a34a',
-        bgColor: '#d1fae5',
-        textColor: '#065f46',
-        icon: '✅'
-      },
-      'in-progress': {
-        label: 'En progreso',
-        color: '#f59e0b',
-        bgColor: '#fef3c7',
-        textColor: '#92400e',
-        icon: '⏳'
-      },
-      'not-started': {
-        label: 'No iniciado',
-        color: '#6b7280',
-        bgColor: '#f3f4f6',
-        textColor: '#374151',
-        icon: '📖'
-      }
-    };
-    return configs[status] || configs['not-started'];
+  // Texto del botón
+  const getButtonText = () => {
+    if (isCompleted) return 'Ver Resultados';
+    if (isInProgress) return 'Continuar';
+    return 'Comenzar Prueba';
   };
-
-  const statusConfig = getStatusConfig(module.status);
   
-  // Verificar si el módulo está bloqueado (módulos secuenciales)
-  const isLocked = module.status === 'not-started' && module.order > 1;
-
-  const handleStartModule = async (e) => {
-    e.stopPropagation(); // Prevenir que se active el onClick del card
-    
-    if (!currentUser?.uid || isLocked) return;
+  // Formatear fecha si existe
+  const formatDate = (timestamp) => {
+    if (!timestamp) return '';
     
     try {
-      await startModule(currentUser.uid, module.id);
-      // Recargar la página para ver cambios
-      window.location.reload();
+      // Si es un objeto de Firebase Timestamp
+      if (timestamp._seconds) {
+        return new Date(timestamp._seconds * 1000).toLocaleDateString('es-ES');
+      }
+      // Si es un string ISO
+      if (typeof timestamp === 'string') {
+        return new Date(timestamp).toLocaleDateString('es-ES');
+      }
+      return '';
     } catch (error) {
-      console.error('Error iniciando módulo:', error);
-      alert('Error al iniciar el módulo. Por favor, intenta nuevamente.');
+      console.error('Error formateando fecha:', error);
+      return '';
     }
   };
 
-  const handleCardClick = () => {
-    if (!isLocked && onClick) {
-      onClick();
-    }
-  };
-
-  const handleDetailsClick = (e) => {
-    e.stopPropagation();
-    if (onClick) {
-      onClick();
-    }
+  // Manejar clic en el módulo
+  const handleClick = () => {
+    // Pasar información adicional según el estado
+    const moduleData = {
+      ...module,
+      isCompleted: isCompleted || isInProgress,
+      isViewOnly: isCompleted,
+      canTakeTest: isPending || isInProgress
+    };
+    
+    onClick(moduleData);
   };
 
   return (
-    <div 
-      className={`module-card ${module.status} ${isLocked ? 'bloqueado' : ''}`}
-      onClick={handleCardClick}
-      style={{ 
-        cursor: isLocked ? 'not-allowed' : 'pointer'
-      }}
-    >
-      <div className="module-header">
-        <div className="module-icon" style={{ 
-          background: statusConfig.bgColor,
-          color: statusConfig.textColor
-        }}>
-          {module.icon}
+    <div className={`module-card ${module.estado}`} onClick={handleClick}>
+      <div className="module-card-header">
+        <div className="module-icon">{module.icon || '📚'}</div>
+        <div className="module-title-section">
+          <h4 className="module-title">{module.title}</h4>
+          <span className="status-badge" style={{ backgroundColor: module.colorEtiqueta }}>
+            {module.etiqueta}
+          </span>
         </div>
-        <span className="module-status" style={{ 
-          background: statusConfig.bgColor,
-          color: statusConfig.textColor
-        }}>
-          {statusConfig.label}
-        </span>
       </div>
       
-      <div className="module-title">{module.title}</div>
-      <div className="module-description">{module.description}</div>
+      <p className="module-description">{module.description}</p>
       
       <div className="module-meta">
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--muted)', marginBottom: '10px' }}>
-          <span>📊 {module.difficulty}</span>
-          <span>⏱️ {module.duration}</span>
-        </div>
-      </div>
-      
-      <div className="module-progress">
-        <div className="progress-info">
-          <span>Progreso</span>
-          <span>{module.progress}%</span>
-        </div>
-        <div className="progress-bar">
-          <div 
-            className="progress-bar-fill"
-            style={{ 
-              width: `${module.progress}%`,
-              background: statusConfig.color
-            }}
-          ></div>
-        </div>
-      </div>
-      
-      <div className="module-actions">
-        {isLocked ? (
-          <button className="btn btn-disabled" disabled>
-            🔒 Bloqueado
-          </button>
-        ) : module.status === 'completed' ? (
-          <button className="btn btn-success" onClick={handleDetailsClick}>
-            ✅ Revisar
-          </button>
-        ) : module.status === 'in-progress' ? (
-          <button className="btn btn-primary" onClick={handleDetailsClick}>
-            ➡️ Continuar
-          </button>
-        ) : (
-          <button className="btn btn-secondary" onClick={handleStartModule}>
-            🚀 Comenzar
-          </button>
+        <span className="meta-item">
+          <span className="meta-icon">📊</span>
+          {module.difficulty}
+        </span>
+        <span className="meta-item">
+          <span className="meta-icon">⏱️</span>
+          {module.duration}
+        </span>
+        {module.porcentaje > 0 && (
+          <span className="meta-item">
+            <span className="meta-icon">📈</span>
+            {module.porcentaje}%
+          </span>
         )}
-        
-        {module.status !== 'not-started' && (
-          <button className="btn btn-secondary" onClick={handleDetailsClick}>
-            📋 Detalles
-          </button>
+        {isCompleted && module.testInfo?.fecha && (
+          <span className="meta-item">
+            <span className="meta-icon">📅</span>
+            {formatDate(module.testInfo.fecha)}
+          </span>
         )}
       </div>
+      
+      {/* Mostrar diferente contenido según estado */}
+      {isCompleted ? (
+        // MÓDULOS COMPLETADOS: Sin barra, con info de test
+        <div className="completed-info">
+          <div className="completion-badge">
+            <span className="check-icon">✓</span>
+            <span className="completion-text">100% completado</span>
+          </div>
+          
+          {module.testInfo && (
+            <div className="test-details">
+              <div className="test-score">
+                <span className="score-label">Puntaje:</span>
+                <span className="score-value">
+                  {module.testInfo.puntajeObtenido || 0}/{module.testInfo.totalPreguntas || 5}
+                </span>
+              </div>
+              {module.testInfo.porcentaje > 0 && (
+                <div className="test-score">
+                  <span className="score-label">Porcentaje:</span>
+                  <span className="score-value">
+                    {module.testInfo.porcentaje}%
+                  </span>
+                </div>
+              )}
+              {module.testInfo.fecha && (
+                <div className="test-date">
+                  <span className="date-label">Fecha:</span>
+                  <span className="date-value">{formatDate(module.testInfo.fecha)}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        // MÓDULOS EN PROGRESO o PENDIENTES: Con barra de progreso
+        <div className="progress-container">
+          <div className="progress-bar">
+            <div 
+              className="progress-fill" 
+              style={{ 
+                width: `${module.progress}%`,
+                backgroundColor: module.colorEtiqueta
+              }}
+            ></div>
+          </div>
+          <span className="progress-text">
+            {module.progress}% completado
+            {isPending && ' • Listo para comenzar'}
+          </span>
+        </div>
+      )}
+      
+      <button className={`module-button ${module.estado}`}>
+        {getButtonText()}
+      </button>
     </div>
   );
 };

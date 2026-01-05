@@ -2,6 +2,7 @@ import React, { useState, useContext, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import { getDashboardData } from '../../services/dashboardService';
+import Swal from 'sweetalert2';
 import ModuleCard from '../../components/student/ModuleCard';
 import ProgressChart from '../../components/student/ProgressChart';
 import '../../styles/Dashboard.css';
@@ -10,9 +11,9 @@ const Dashboard = () => {
   const { userData, currentUser } = useContext(AuthContext);
   const location = useLocation();
   const navigate = useNavigate();
-  
+
   // Obtener año seleccionado de la navegación
-  const selectedYear = location.state?.selectedYear || userData?.año || 1;
+  const selectedYear = location.state?.selectedYear || userData?.añoSeleccionado || userData?.año || 1;
   const [activeSection, setActiveSection] = useState('inicio');
   const [dashboardData, setDashboardData] = useState(null);
   const [modules, setModules] = useState([]);
@@ -22,24 +23,237 @@ const Dashboard = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [sidebarActive, setSidebarActive] = useState(window.innerWidth > 768);
 
+  // Función auxiliar para iconos
+  const getModuleIcon = (order) => {
+    const icons = ['💻', '🔧', '⚙️', '📄', '🌐', '👨‍💻', '⚛️', '🔥', '🔌', '🚀', '💼', '🎯'];
+    return icons[(order - 1) % icons.length] || '📚';
+  };
+
+  // Datos de respaldo (si Firebase falla)
+  const getFallbackData = (year) => {
+    console.log(`🔄 Creando datos de respaldo para año ${year}`);
+
+    // Obtener progreso del usuario desde el contexto
+    const yearKey = `año${year}`;
+    const userProgress = userData?.progreso?.[yearKey] || {};
+
+    // Crear módulos básicos
+    const totalModules = userProgress.totalNiveles || (year === 1 ? 6 : 8);
+    const completed = userProgress.nivelesCompletados || 0;
+    const approved = userProgress.nivelesAprobados || 0;
+
+    const modulesArray = [];
+    for (let i = 1; i <= totalModules; i++) {
+      let status = 'not-started';
+      let progressValue = 0;
+
+      if (i <= completed) {
+        status = 'completed';
+        progressValue = 100;
+      } else if (i === completed + 1) {
+        status = 'in-progress';
+        progressValue = 50;
+      }
+
+      modulesArray.push({
+        id: `${year === 1 ? '1ro' : '2do'}_modulo_${i}`,
+        title: `Módulo ${i}`,
+        description: `Contenido educativo del módulo ${i}`,
+        status,
+        progress: progressValue,
+        icon: getModuleIcon(i),
+        difficulty: i <= 2 ? 'básico' : i <= 4 ? 'intermedio' : 'avanzado',
+        duration: '120 min',
+        order: i
+      });
+    }
+
+    // Calcular estadísticas
+    const inProgress = completed > 0 && completed < totalModules ? 1 : 0;
+    const notStarted = totalModules - completed - inProgress;
+    const progressPercent = totalModules > 0 ? Math.round((completed / totalModules) * 100) : 0;
+
+    // Módulos próximos (primeros 3 no completados)
+    const nextModules = modulesArray
+      .filter(m => m.status !== 'completed')
+      .slice(0, 3);
+
+    // Módulos recientes (últimos 2 completados o en progreso)
+    const recentModules = modulesArray
+      .filter(m => m.status === 'completed' || m.status === 'in-progress')
+      .slice(-2)
+      .reverse();
+
+    return {
+      modules: modulesArray,
+      nextModules,
+      recentModules,
+      stats: {
+        total: totalModules,
+        completed: completed,
+        approved: approved,
+        inProgress: inProgress,
+        notStarted: notStarted,
+        averageScore: userProgress.promedioPuntaje || 0,
+        bestScore: userProgress.promedioPuntaje || 0,
+        totalTimeSpent: 0
+      },
+      yearTitle: year === 1 ? 'Primero de Bachillerato' : 'Segundo de Bachillerato',
+      canDownloadCertificate: userProgress.completado || completed === totalModules,
+      progressPercent,
+      yearProgress: userProgress
+    };
+  };
+
   // Cargar datos del dashboard desde Firebase
   useEffect(() => {
+    /*     const loadDashboardData = async () => {
+          if (!currentUser?.uid) {
+            console.log('⚠️ No hay usuario, usando datos de respaldo');
+            const fallbackData = getFallbackData(selectedYear);
+            setDashboardData(fallbackData);
+            setModules(fallbackData.modules || []);
+            setFilteredModules(fallbackData.modules || []);
+            setLoading(false);
+            return;
+          }
+    
+          setLoading(true);
+          console.log(`📊 Cargando dashboard para año ${selectedYear}, usuario: ${currentUser.uid}`);
+          
+          try {
+            const data = await getDashboardData(currentUser.uid, selectedYear);
+            console.log('✅ Datos recibidos de Firebase:', data);
+            
+            // Verificar estructura de datos
+            if (!data) {
+              console.log('⚠️ getDashboardData devolvió null/undefined');
+              throw new Error('No se recibieron datos del servidor');
+            }
+            
+            // Verificar módulos
+            if (!Array.isArray(data.modules)) {
+              console.log('⚠️ Módulos no es un array:', data.modules);
+              data.modules = data.modules || [];
+            }
+            
+            // Verificar stats
+            if (!data.stats) {
+              console.log('⚠️ Stats no existe, creando...');
+              data.stats = {
+                total: data.modules?.length || 0,
+                completed: 0,
+                approved: 0,
+                inProgress: 0,
+                notStarted: data.modules?.length || 0,
+                averageScore: 0,
+                bestScore: 0,
+                totalTimeSpent: 0
+              };
+            }
+            
+            // Asegurar que nextModules y recentModules sean arrays
+            data.nextModules = Array.isArray(data.nextModules) ? data.nextModules : [];
+            data.recentModules = Array.isArray(data.recentModules) ? data.recentModules : [];
+            
+            console.log('📊 Datos procesados:', {
+              totalModules: data.modules?.length,
+              stats: data.stats,
+              progressPercent: data.progressPercent
+            });
+            
+            setDashboardData(data);
+            setModules(data.modules || []);
+            setFilteredModules(data.modules || []);
+            
+          } catch (error) {
+            console.error('❌ Error cargando datos del dashboard:', error);
+            console.log('⚠️ Usando datos de respaldo...');
+            
+            // Datos de respaldo en caso de error
+            const fallbackData = getFallbackData(selectedYear);
+            console.log('🔄 Datos de respaldo:', fallbackData);
+            
+            setDashboardData(fallbackData);
+            setModules(fallbackData.modules || []);
+            setFilteredModules(fallbackData.modules || []);
+          } finally {
+            setLoading(false);
+          }
+        }; */
     const loadDashboardData = async () => {
       if (!currentUser?.uid) {
+        console.log('⚠️ No hay usuario, usando datos de respaldo');
+        const fallbackData = getFallbackData(selectedYear);
+        setDashboardData(fallbackData);
+        setModules(fallbackData.modules || []);
+        setFilteredModules(fallbackData.modules || []);
         setLoading(false);
         return;
       }
 
       setLoading(true);
+      console.log(`📊 Cargando dashboard REAL para año ${selectedYear}, usuario: ${currentUser.uid}`);
+
       try {
         const data = await getDashboardData(currentUser.uid, selectedYear);
+        console.log('✅✅✅ Datos RECIBIDOS de Firebase (dashboardService):', data);
+
+        // Verificar si tiene estados detallados
+        if (data.hasDetailedStatus) {
+          console.log('🎉 Estados detallados cargados correctamente');
+
+          // Agrupar módulos por estado para logging
+          const grouped = {
+            aprobados: data.modules.filter(m => m.status === 'completed' && m.aprobado).length,
+            reprobados: data.modules.filter(m => m.status === 'completed' && !m.aprobado).length,
+            enProgreso: data.modules.filter(m => m.status === 'in-progress').length,
+            porComenzar: data.modules.filter(m => m.status === 'not-started').length
+          };
+
+          console.log('📊 Distribución de estados:', grouped);
+        }
+
+        // Verificar si son datos reales o de respaldo
+        if (data.isFallback) {
+          console.log('⚠️ Se cargaron datos de respaldo (fallback)');
+        } else {
+          console.log('🎉 Se cargaron datos REALES de Firebase');
+        }
+
+        // Validar estructura
+        if (!data || typeof data !== 'object') {
+          console.error('❌ Datos inválidos recibidos');
+          throw new Error('Estructura de datos inválida');
+        }
+
+        // Asegurar arrays
+        const safeModules = Array.isArray(data.modules) ? data.modules : [];
+        const safeStats = data.stats || {};
+
+        console.log('📊 Estadísticas cargadas:', {
+          total: safeStats.total,
+          completed: safeStats.completed,
+          approved: safeStats.approved,
+          inProgress: safeStats.inProgress,
+          avg: ((safeStats.approved / safeStats.total) * 100).toFixed(2)
+        });
+
         setDashboardData(data);
-        setModules(data.modules);
-        setFilteredModules(data.modules);
+        setModules(safeModules);
+        setFilteredModules(safeModules);
+
       } catch (error) {
-        console.error('Error cargando datos del dashboard:', error);
-        // Datos de respaldo en caso de error
-        setDashboardData(getFallbackData(selectedYear));
+        console.error('❌ Error crítico cargando datos del dashboard:', error);
+        console.log('🔄 Usando datos de respaldo locales...');
+
+        // Usar datos de respaldo locales
+        const fallbackData = getFallbackData(selectedYear);
+        console.log('🔄 Datos de respaldo locales:', fallbackData);
+
+        setDashboardData(fallbackData);
+        setModules(fallbackData.modules || []);
+        setFilteredModules(fallbackData.modules || []);
       } finally {
         setLoading(false);
       }
@@ -53,181 +267,20 @@ const Dashboard = () => {
     if (!modules.length) return;
 
     let result = modules;
-    
+
     if (searchTerm) {
-      result = result.filter(module => 
+      result = result.filter(module =>
         module.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         module.description.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
-    
+
     if (statusFilter !== 'all') {
       result = result.filter(module => module.status === statusFilter);
     }
-    
+
     setFilteredModules(result);
   }, [searchTerm, statusFilter, modules]);
-
-  // Datos de respaldo (si Firebase falla)
-  const getFallbackData = (year) => {
-    const yearData = {
-      1: {
-        modules: [
-          {
-            id: 'año1_nivel1',
-            title: 'Programación Básica',
-            description: 'Introducción a algoritmos, variables y lógica de programación.',
-            status: userData?.progreso?.año1?.nivelesCompletados >= 1 ? 'completed' : 'in-progress',
-            progress: userData?.progreso?.año1?.nivelesCompletados >= 1 ? 100 : 60,
-            icon: '💻',
-            difficulty: 'básico',
-            duration: '2 semanas',
-            order: 1
-          },
-          {
-            id: 'año1_nivel2',
-            title: 'HTML/CSS Fundamentos',
-            description: 'Estructura web y estilos básicos para desarrollo frontend.',
-            status: userData?.progreso?.año1?.nivelesCompletados >= 2 ? 'completed' : 'not-started',
-            progress: userData?.progreso?.año1?.nivelesCompletados >= 2 ? 100 : 0,
-            icon: '🌐',
-            difficulty: 'básico',
-            duration: '3 semanas',
-            order: 2
-          },
-          {
-            id: 'año1_nivel3',
-            title: 'JavaScript Intro',
-            description: 'Sintaxis básica, DOM manipulation y eventos en JavaScript.',
-            status: 'not-started',
-            progress: 0,
-            icon: '⚡',
-            difficulty: 'intermedio',
-            duration: '4 semanas',
-            order: 3
-          },
-          {
-            id: 'año1_nivel4',
-            title: 'Base de Datos',
-            description: 'Fundamentos de SQL y modelos de datos relacionales.',
-            status: 'not-started',
-            progress: 0,
-            icon: '🗄️',
-            difficulty: 'intermedio',
-            duration: '3 semanas',
-            order: 4
-          },
-          {
-            id: 'año1_nivel5',
-            title: 'Proyecto Final',
-            description: 'Desarrollo de una aplicación web completa integrando conocimientos.',
-            status: 'not-started',
-            progress: 0,
-            icon: '🚀',
-            difficulty: 'avanzado',
-            duration: '4 semanas',
-            order: 5
-          }
-        ],
-        nextModules: [],
-        recentModules: [],
-        stats: {
-          total: 5,
-          completed: userData?.progreso?.año1?.nivelesCompletados || 0,
-          inProgress: userData?.progreso?.año1?.nivelesCompletados < 5 ? 1 : 0,
-          notStarted: 5 - (userData?.progreso?.año1?.nivelesCompletados || 0)
-        },
-        yearTitle: 'Primero de Bachillerato',
-        canDownloadCertificate: userData?.progreso?.año1?.completado || false,
-        progressPercent: userData?.progreso?.año1?.nivelesCompletados ? 
-          Math.round((userData.progreso.año1.nivelesCompletados / 5) * 100) : 0
-      },
-      2: {
-        modules: [
-          {
-            id: 'año2_nivel1',
-            title: 'React Fundamentos',
-            description: 'Componentes, estado, props y ciclo de vida en React.',
-            status: 'not-started',
-            progress: 0,
-            icon: '⚛️',
-            difficulty: 'intermedio',
-            duration: '4 semanas',
-            order: 1
-          },
-          {
-            id: 'año2_nivel2',
-            title: 'Firebase Backend',
-            description: 'Autenticación, Firestore y Storage con Firebase.',
-            status: 'not-started',
-            progress: 0,
-            icon: '🔥',
-            difficulty: 'intermedio',
-            duration: '3 semanas',
-            order: 2
-          },
-          {
-            id: 'año2_nivel3',
-            title: 'APIs REST',
-            description: 'Consumo y creación de APIs RESTful con Node.js/Express.',
-            status: 'not-started',
-            progress: 0,
-            icon: '🔌',
-            difficulty: 'avanzado',
-            duration: '4 semanas',
-            order: 3
-          },
-          {
-            id: 'año2_nivel4',
-            title: 'Despliegue',
-            description: 'Hosting, dominios, SSL y despliegue en producción.',
-            status: 'not-started',
-            progress: 0,
-            icon: '🚀',
-            difficulty: 'intermedio',
-            duration: '2 semanas',
-            order: 4
-          },
-          {
-            id: 'año2_nivel5',
-            title: 'Proyecto Avanzado',
-            description: 'Aplicación fullstack con todas las tecnologías aprendidas.',
-            status: 'not-started',
-            progress: 0,
-            icon: '💼',
-            difficulty: 'avanzado',
-            duration: '6 semanas',
-            order: 5
-          },
-          {
-            id: 'año2_nivel6',
-            title: 'Preparación Laboral',
-            description: 'Portfolio, entrevistas técnicas y búsqueda de empleo.',
-            status: 'not-started',
-            progress: 0,
-            icon: '🎯',
-            difficulty: 'básico',
-            duration: '2 semanas',
-            order: 6
-          }
-        ],
-        nextModules: [],
-        recentModules: [],
-        stats: {
-          total: 6,
-          completed: userData?.progreso?.año2?.nivelesCompletados || 0,
-          inProgress: 0,
-          notStarted: 6 - (userData?.progreso?.año2?.nivelesCompletados || 0)
-        },
-        yearTitle: 'Segundo de Bachillerato',
-        canDownloadCertificate: userData?.progreso?.año2?.completado || false,
-        progressPercent: userData?.progreso?.año2?.nivelesCompletados ? 
-          Math.round((userData.progreso.año2.nivelesCompletados / 6) * 100) : 0
-      }
-    };
-    
-    return yearData[year] || yearData[1];
-  };
 
   // Funciones de navegación
   const showSection = (section) => {
@@ -249,14 +302,39 @@ const Dashboard = () => {
     navigate('/login');
   };
 
-  const handleModuleClick = async (moduleId) => {
-    // Aquí navegaremos al módulo específico
-    navigate(`/module/${moduleId}`, { 
-      state: { 
+  const handleModuleClick = async (moduleData) => {
+    try {
+      console.log(`📖 Navegando al módulo: ${moduleData.title}`);
+
+      // Obtener número de módulo (1-6)
+      const moduleNumber = moduleData.numeroModulo || moduleData.order || 1;
+
+      // Preparar datos para el visor
+      const navState = {
+        moduleId: moduleData.id,
+        moduleTitle: moduleData.title,
         year: selectedYear,
-        moduleId: moduleId 
-      }
-    });
+        testId: moduleNumber,
+        isCompleted: moduleData.estado === 'aprobado' || moduleData.estado === 'reprobado',
+        testInfo: moduleData.testInfo || null
+      };
+
+      console.log('🚀 Navegando con estado:', navState);
+
+      // Navegar al visor de módulos
+      navigate(`/module/${moduleNumber}`, {
+        state: navState
+      });
+
+    } catch (error) {
+      console.error('Error navegando al módulo:', error);
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'No se pudo cargar el módulo. Intenta nuevamente.',
+        confirmButtonText: 'OK'
+      });
+    }
   };
 
   if (loading) {
@@ -268,32 +346,61 @@ const Dashboard = () => {
     );
   }
 
-  if (!dashboardData) {
+  // Validar que dashboardData existe y tiene la estructura correcta
+  if (!dashboardData || !dashboardData.modules) {
     return (
       <div className="dashboard-loading">
         <div className="error-message">
           <h3>❌ Error cargando datos</h3>
           <p>No se pudieron cargar los datos del dashboard.</p>
-          <button 
+          <button
             className="btn btn-primary"
             onClick={() => window.location.reload()}
           >
             Reintentar
+          </button>
+          <button
+            className="btn btn-secondary mt-2"
+            onClick={() => {
+              // Forzar datos de respaldo
+              const fallbackData = getFallbackData(selectedYear);
+              setDashboardData(fallbackData);
+              setModules(fallbackData.modules);
+              setFilteredModules(fallbackData.modules);
+            }}
+          >
+            Usar datos de demostración
           </button>
         </div>
       </div>
     );
   }
 
-  const { 
-    modules: loadedModules, 
-    nextModules, 
-    recentModules, 
-    stats, 
-    yearTitle,
-    canDownloadCertificate,
-    progressPercent 
+  // Ahora sí podemos desestructurar con seguridad
+  const {
+    modules: loadedModules,
+    nextModules = [],
+    recentModules = [],
+    stats = {},
+    yearTitle = selectedYear === 1 ? 'Primero de Bachillerato' : 'Segundo de Bachillerato',
+    canDownloadCertificate = false,
+    progressPercent = 0
   } = dashboardData;
+
+  // Validar que los arrays y objetos existan
+  const safeModules = loadedModules || [];
+  const safeNextModules = nextModules || [];
+  const safeRecentModules = recentModules || [];
+  const safeStats = stats || {
+    total: 0,
+    completed: 0,
+    approved: 0,
+    inProgress: 0,
+    notStarted: 0,
+    averageScore: 0,
+    bestScore: 0,
+    totalTimeSpent: 0
+  };
 
   return (
     <div className="dashboard-fullscreen">
@@ -301,18 +408,18 @@ const Dashboard = () => {
         <button className="menu-toggle" onClick={toggleSidebar}>
           {sidebarActive ? '✕' : '☰'}
         </button>
-        
+
         <div className="dashboard">
           {/* SIDEBAR */}
           <aside className={`sidebar ${sidebarActive ? 'active' : ''}`}>
-            <div 
-              className="profile" 
+            <div
+              className="profile"
               onClick={() => navigate('/profile')}
               style={{ cursor: 'pointer' }}
             >
-              <img 
+              <img
                 id="sidebarPhoto"
-                src={userData?.fotoURL || "https://cdn-icons-png.flaticon.com/512/149/149071.png"} 
+                src={userData?.fotoURL || "https://cdn-icons-png.flaticon.com/512/149/149071.png"}
                 alt="Perfil"
               />
               <h3 id="name">{userData?.nombre || 'Estudiante'}</h3>
@@ -320,25 +427,25 @@ const Dashboard = () => {
             </div>
 
             <nav className="menu">
-              <button 
+              <button
                 className={activeSection === 'inicio' ? 'active' : ''}
                 onClick={() => handleSectionChange('inicio')}
               >
                 🏠 Inicio
               </button>
-              <button 
+              <button
                 className={activeSection === 'modulos' ? 'active' : ''}
                 onClick={() => handleSectionChange('modulos')}
               >
                 📘 Módulos
               </button>
-              <button 
+              <button
                 className={activeSection === 'progreso' ? 'active' : ''}
                 onClick={() => handleSectionChange('progreso')}
               >
                 📊 Progreso
               </button>
-              <button 
+              <button
                 className={activeSection === 'certificado' ? 'active' : ''}
                 onClick={() => handleSectionChange('certificado')}
               >
@@ -365,25 +472,25 @@ const Dashboard = () => {
                 <div className="stats-container">
                   <div className="stat-card completed">
                     <div className="icon">✅</div>
-                    <div className="number" id="completedCountHome">{stats.completed}</div>
+                    <div className="number" id="completedCountHome">{safeStats.approved || 0}</div>
                     <div className="label">Completados</div>
                   </div>
-                  
+
                   <div className="stat-card pending">
                     <div className="icon">⏳</div>
-                    <div className="number" id="inProgressCountHome">{stats.inProgress}</div>
+                    <div className="number" id="inProgressCountHome">{safeStats.inProgress || 0}</div>
                     <div className="label">En Progreso</div>
                   </div>
-                  
+
                   <div className="stat-card total">
                     <div className="icon">📚</div>
-                    <div className="number" id="totalCountHome">{stats.total}</div>
+                    <div className="number" id="totalCountHome">{safeStats.total || 0}</div>
                     <div className="label">Total Módulos</div>
                   </div>
-                  
+
                   <div className="stat-card" style={{ background: 'linear-gradient(135deg, #e0e7ff, #c7d2fe)' }}>
                     <div className="icon">📈</div>
-                    <div className="number" id="progressPercentHome">{progressPercent}%</div>
+                    <div className="number" id="progressPercentHome">{((safeStats.approved / safeStats.total) * 100).toFixed(2)}%</div>
                     <div className="label">Progreso Total</div>
                   </div>
                 </div>
@@ -391,21 +498,21 @@ const Dashboard = () => {
                 <div className="dashboard-grid">
                   <div className="card" style={{ padding: '20px' }}>
                     <h3 style={{ marginBottom: '20px', color: 'var(--text)' }}>📊 Progreso por Módulos</h3>
-                    <ProgressChart 
-                      completed={stats.completed}
-                      inProgress={stats.inProgress}
-                      notStarted={stats.notStarted}
+                    <ProgressChart
+                      completed={safeStats.approved || 0}
+                      inProgress={safeStats.inProgress || 0}
+                      notStarted={safeStats.notStarted || 0}
                     />
                   </div>
 
                   <div className="card" style={{ padding: '20px' }}>
                     <h3 style={{ marginBottom: '20px', color: 'var(--text)' }}>🎯 Próximos en Continuar</h3>
                     <div id="nextModules" style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                      {nextModules.length > 0 ? (
-                        nextModules.map(module => (
+                      {safeNextModules.length > 0 ? (
+                        safeNextModules.map(module => (
                           <div key={module.id} className="timeline-item">
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <span className="module-icon" style={{ 
+                              <span className="module-icon" style={{
                                 background: module.status === 'in-progress' ? '#fef3c7' : '#f3f4f6',
                                 color: module.status === 'in-progress' ? '#92400e' : '#6b7280',
                                 width: '40px',
@@ -429,7 +536,9 @@ const Dashboard = () => {
                         ))
                       ) : (
                         <p style={{ color: 'var(--muted)', textAlign: 'center', padding: '20px' }}>
-                          ¡Felicidades! Has completado todos los módulos.
+                          {safeStats.completed === safeStats.total
+                            ? '¡Felicidades! Has completado todos los módulos.'
+                            : 'No hay módulos próximos disponibles.'}
                         </p>
                       )}
                     </div>
@@ -439,8 +548,8 @@ const Dashboard = () => {
                 <div className="card" style={{ marginTop: '30px' }}>
                   <h3 style={{ marginBottom: '20px', color: 'var(--text)' }}>🕐 Módulos Recientes</h3>
                   <div className="modules-grid" id="recentModules">
-                    {recentModules.length > 0 ? (
-                      recentModules.map(module => (
+                    {safeRecentModules.length > 0 ? (
+                      safeRecentModules.map(module => (
                         <ModuleCard
                           key={module.id}
                           module={module}
@@ -466,24 +575,33 @@ const Dashboard = () => {
                     <p style={{ color: 'var(--muted)', marginTop: '5px' }}>Gestiona tu aprendizaje</p>
                   </div>
                   <div style={{ fontSize: '14px', color: 'var(--muted)' }}>
-                    <span id="totalModules">{stats.total} módulos</span> • 
-                    <span id="completedModules"> {stats.completed} completados</span>
+                    <span id="totalModules">{safeStats.total || 0} módulos</span> •
+                    <span id="completedModules"> {safeStats.completed || 0} completados</span>
+                    {safeStats.approved > 0 && (
+                      <span> • {safeStats.approved} aprobados</span>
+                    )}
                   </div>
                 </div>
 
                 <div className="stats-container">
                   <div className="stat-card completed">
                     <div className="label">Completados</div>
-                    <div className="number" id="completedCount">{stats.completed}</div>
+                    <div className="number" id="completedCount">{safeStats.approved + safeStats.inProgress || 0}</div>
                   </div>
                   <div className="stat-card pending">
                     <div className="label">En progreso</div>
-                    <div className="number" id="progressCount">{stats.inProgress}</div>
+                    <div className="number" id="progressCount">{safeStats.inProgress || 0}</div>
                   </div>
                   <div className="stat-card total">
                     <div className="label">Total</div>
-                    <div className="number" id="totalCount">{stats.total}</div>
+                    <div className="number" id="totalCount">{safeStats.total || 0}</div>
                   </div>
+                  {safeStats.approved > 0 && (
+                    <div className="stat-card" style={{ background: 'linear-gradient(135deg, #d1fae5, #a7f3d0)' }}>
+                      <div className="label">Aprobados</div>
+                      <div className="number" id="approvedCount">{safeStats.approved || 0}</div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="search-filter">
@@ -494,9 +612,9 @@ const Dashboard = () => {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
-                  
-                  <select 
-                    className="filter-select" 
+
+                  <select
+                    className="filter-select"
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
                   >
@@ -539,16 +657,24 @@ const Dashboard = () => {
                   <div>
                     <h4>📈 Progreso acumulado</h4>
                     <div className="progress-chart-container">
-                      {/* Aquí irá el gráfico de línea */}
-                      <div style={{ 
-                        textAlign: 'center', 
+                      <div style={{
+                        textAlign: 'center',
                         padding: '40px',
                         background: 'var(--bg)',
                         borderRadius: '10px'
                       }}>
                         <div style={{ fontSize: '48px', marginBottom: '10px' }}>📊</div>
-                        <p>Gráfico de progreso temporal</p>
-                        <small className="text-muted">Chart.js se implementará próximamente</small>
+                        <p>Progreso: {progressPercent}%</p>
+                        <small className="text-muted">
+                          {safeStats.completed} de {safeStats.total} módulos completados
+                        </small>
+                        {safeStats.approved > 0 && (
+                          <div style={{ marginTop: '10px' }}>
+                            <small className="text-success">
+                              ✅ {safeStats.approved} módulos aprobados
+                            </small>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -556,24 +682,35 @@ const Dashboard = () => {
                   <div>
                     <h4>✅ Módulos completados</h4>
                     <ul id="timeline" style={{ listStyle: 'none', padding: 0 }}>
-                      {modules
+                      {safeModules
                         .filter(m => m.status === 'completed')
                         .map(module => (
                           <li key={module.id} className="timeline-item">
                             <strong>{module.title}</strong>
                             <small style={{ display: 'block', color: 'var(--muted)' }}>
                               Completado al 100%
+                              {safeStats.approved > 0 && ' • ✅ Aprobado'}
                             </small>
                           </li>
                         ))}
+                      {safeModules.filter(m => m.status === 'completed').length === 0 && (
+                        <li style={{ color: 'var(--muted)', padding: '10px' }}>
+                          No hay módulos completados todavía.
+                        </li>
+                      )}
                     </ul>
                   </div>
                 </div>
 
                 <p id="progressText" style={{ marginTop: '20px', fontWeight: 600 }}>
-                  {progressPercent === 100 
-                    ? '🎉 ¡Felicidades! Has completado todos los módulos.' 
+                  {progressPercent === 100
+                    ? '🎉 ¡Felicidades! Has completado todos los módulos.'
                     : `Progreso general: ${progressPercent}% completado`}
+                  {safeStats.approved > 0 && (
+                    <span style={{ color: '#10b981', marginLeft: '10px' }}>
+                      ({safeStats.approved} aprobados)
+                    </span>
+                  )}
                 </p>
               </div>
             </section>
@@ -583,28 +720,28 @@ const Dashboard = () => {
               <div className="card">
                 <h3>🎓 Certificado de Finalización</h3>
                 <p id="certText">
-                  {canDownloadCertificate 
-                    ? '✅ ¡Felicidades! Has completado todos los módulos. Ya puedes descargar tu certificado.' 
+                  {canDownloadCertificate
+                    ? '✅ ¡Felicidades! Has completado todos los módulos. Ya puedes descargar tu certificado.'
                     : '🔒 Completa todos los módulos para desbloquear tu certificado'}
                 </p>
 
                 <div className="preview-controls">
-                  <button 
-                    id="btnCert" 
+                  <button
+                    id="btnCert"
                     className={`btn ${canDownloadCertificate ? 'btn-primary' : 'btn-disabled'}`}
                     disabled={!canDownloadCertificate}
                     style={{ marginBottom: '20px' }}
                   >
                     📄 Descargar Certificado en PDF
                   </button>
-                  
+
                   <div className="preview-options">
                     <select id="themeSelect" className="filter-select">
                       <option value="default">Tema: Clásico</option>
                       <option value="modern">Tema: Moderno</option>
                       <option value="elegant">Tema: Elegante</option>
                     </select>
-                    
+
                     <button className="btn btn-secondary">
                       🔄 Actualizar vista previa
                     </button>
@@ -617,7 +754,7 @@ const Dashboard = () => {
                       <h4>👁️ Vista Previa del Certificado</h4>
                       <p>Así se verá tu certificado cuando lo descargues</p>
                     </div>
-                    
+
                     <div id="certPreviewContainer" className="cert-preview-container">
                       <div className="cert-border">
                         <h1>Certificado de Finalización</h1>
@@ -632,19 +769,19 @@ const Dashboard = () => {
                         <div className="cert-body">
                           por haber completado exitosamente el curso de<br />
                           <strong>{yearTitle}</strong><br />
-                          con un promedio sobresaliente.
+                          con un promedio de <strong>{safeStats.averageScore || 0}%</strong>.
                         </div>
                         <div className="cert-message">
-                          Este certificado acredita la finalización de todos los módulos requeridos
+                          Este certificado acredita la finalización de {safeStats.completed} módulos
                           y demuestra competencia en las habilidades adquiridas durante el curso.
                         </div>
                         <div className="cert-footer">
                           <div>
                             <div style={{ fontWeight: 'bold' }}>Fecha de emisión</div>
-                            <div>{new Date().toLocaleDateString('es-ES', { 
-                              year: 'numeric', 
-                              month: 'long', 
-                              day: 'numeric' 
+                            <div>{new Date().toLocaleDateString('es-ES', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric'
                             })}</div>
                           </div>
                           <div>
@@ -654,7 +791,7 @@ const Dashboard = () => {
                         </div>
                       </div>
                     </div>
-                    
+
                     <div className="preview-footer">
                       <p><small>📏 Dimensiones: A4 horizontal (297mm × 210mm)</small></p>
                       <p><small>🎨 Personalizable antes de descargar</small></p>
@@ -667,13 +804,15 @@ const Dashboard = () => {
                     <p>Completa todos los módulos para desbloquear tu certificado personalizado</p>
                     <div className="progress-indicator">
                       <div className="progress-bar">
-                        <div 
-                          className="progress-bar-fill" 
+                        <div
+                          className="progress-bar-fill"
                           id="certProgressBar"
                           style={{ width: `${progressPercent}%` }}
                         ></div>
                       </div>
-                      <span id="certProgressText">{progressPercent}% completado</span>
+                      <span id="certProgressText">
+                        {progressPercent}% completado ({safeStats.completed}/{safeStats.total} módulos)
+                      </span>
                     </div>
                   </div>
                 )}

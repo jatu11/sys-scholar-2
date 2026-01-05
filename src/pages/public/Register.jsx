@@ -59,7 +59,7 @@ const Register = () => {
     }
 
     try {
-      const userId  = await register(
+      const result = await register(
         formData.email,
         formData.password,
         {
@@ -75,37 +75,47 @@ const Register = () => {
           progreso: {
             año1: {
               completado: false,
+              nivelesAprobados: 0,
               nivelesCompletados: 0,
-              totalNiveles: 5
+              promedioPuntaje: 0,
+              totalNiveles: 6
             },
             año2: {
               completado: false,
+              nivelesAprobados: 0,
               nivelesCompletados: 0,
-              totalNiveles: 6
+              promedioPuntaje: 0,
+              totalNiveles: 8
             }
           }
         }
       );
-      // Inicializar progreso con el UID
-      if (userId) {
-        //NUEVO: Inicializar progreso automáticamente
+      if (result.success && result.user) {
+        // Obtener el userId del objeto user
+        const userId = result.user.uid;
+
+        console.log('✅ Usuario registrado con UID:', userId);
+
+        // Inicializar progreso con el UID correcto
         try {
           await initializeStudentProgress(userId, 1);
           console.log('✅ Progreso inicializado automáticamente');
         } catch (progressError) {
           console.warn('⚠️ Error inicializando progreso:', progressError);
-          // No detenemos el registro si falla la inicialización del progreso
+          // No detenemos el registro si falla la inicialización
         }
-      }
 
-      Swal.fire({
-        icon: 'success',
-        title: '¡Registro exitoso!',
-        text: 'Tu cuenta ha sido creada correctamente. Ahora puedes iniciar sesión.',
-        confirmButtonColor: '#30297A'
-      }).then(() => {
-        navigate('/login');
-      });
+        Swal.fire({
+          icon: 'success',
+          title: '¡Registro exitoso!',
+          text: 'Tu cuenta ha sido creada correctamente. Ahora puedes iniciar sesión.',
+          confirmButtonColor: '#30297A'
+        }).then(() => {
+          navigate('/login');
+        });
+      } else {
+        throw new Error(result.error || 'Error en el registro');
+      }
 
     } catch (error) {
       Swal.fire({

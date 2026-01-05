@@ -16,7 +16,7 @@ import ResetPassword from './pages/public/ResetPassword';
 import YearSelection from './pages/student/YearSelection';
 import Dashboard from './pages/student/Dashboard';
 import Profile from './pages/student/Profile';
-
+import ModuleViewer from './components/student/ModuleViewer';
 
 // Admin Pages
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -83,11 +83,25 @@ function App() {
             </PrivateRoute>
           } />
 
-
           <Route path="/dashboard" element={
             <PrivateRoute>
               <Dashboard />
             </PrivateRoute>
+          } />
+
+          {/* Ruta para visualizar módulos HTML - ¡AHORA PROTEGIDA! */}
+          <Route path="/module/:moduleId" element={
+            <PrivateRoute>
+              <ModuleViewer />
+            </PrivateRoute>
+          } />
+
+          <Route path="/test-modulo" element={
+            <div>
+              <h1>Ruta de Prueba SIN PrivateRoute</h1>
+              <p>Si ves esto, el problema NO es PrivateRoute</p>
+              <a href="/modulos/modulo1.html">Probar módulo</a>
+            </div>
           } />
 
           <Route path="/profile" element={

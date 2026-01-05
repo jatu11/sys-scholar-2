@@ -1,115 +1,143 @@
-import { db } from '../services/firebase/config';
+// src/utils/initializeProgress.js
 import { 
-  collection, 
   doc, 
-  setDoc, 
-  getDocs,
-  query,
-  where,
-  orderBy,
-  writeBatch,
-  serverTimestamp 
-} from 'firebase/firestore';
+  setDoc,
+  getDoc,
+  serverTimestamp, 
+  collection 
+} from "firebase/firestore";
+import { db } from "../services/firebase/config";
 
 /**
- * Inicializar progreso para un usuario estudiante
+ * Inicializa la subcolección progress para un estudiante
+ * @param {string} userId - ID del usuario (string)
+ * @param {number} year - Año académico (1 o 2)
  */
 export const initializeStudentProgress = async (userId, year = 1) => {
   try {
-    console.log(`🎯 Inicializando progreso para usuario: ${userId}, año: ${year}`);
-    
-    // 1. Verificar si el usuario existe y es estudiante
-    const userRef = doc(db, 'users', userId);
-    
-    // 2. Obtener módulos del año
-    const levelsRef = collection(db, 'levels');
-    const q = query(
-      levelsRef,
-      where('año', '==', year.toString()),
-      orderBy('orden', 'asc')
-    );
-    
-    const levelsSnapshot = await getDocs(q);
-    
-    if (levelsSnapshot.empty) {
-      console.warn(`⚠️ No hay módulos para el año ${year}`);
-      return { success: false, message: 'No hay módulos para este año' };
+    // Validar que userId sea un string
+    if (typeof userId !== 'string') {
+      console.error('❌ Error: userId debe ser string, recibido:', typeof userId, userId);
+      throw new Error('userId debe ser un string');
     }
     
-    // 3. Crear batch para escritura eficiente
-    const batch = writeBatch(db);
+    if (!userId || userId.trim() === '') {
+      throw new Error('userId no puede estar vacío');
+    }
     
-    // 4. Crear progreso para cada módulo
-    levelsSnapshot.forEach((levelDoc) => {
-      const levelId = levelDoc.id;
-      const progressRef = doc(db, `users/${userId}/progress`, levelId);
-      
-      batch.set(progressRef, {
-        nivelId: levelId,
+    console.log(`🏗️ Inicializando progress para usuario: ${userId}, año: ${year}`);
+    
+    // Primero, crear documento para el año específico
+    const progressRef = doc(db, "users", userId, "progress", `año${year}`);
+    
+    const progressData = {
+      userId: userId,
+      año: year,
+      fechaCreacion: serverTimestamp(),
+      totalTests: year === 1 ? 6 : 8,
+      tests: {}, // Objeto vacío que se llenará con los tests
+      resumen: {
         completado: false,
-        fechaInicio: null,
-        fechaCompletado: null,
-        testResultado: null,
-        tiempoTotal: 0,
-        recursosVistos: [],
-        notas: '',
-        ultimaActualizacion: serverTimestamp()
-      });
-    });
-    
-    // 5. Ejecutar batch
-    await batch.commit();
-    
-    console.log(`✅ Progreso creado para ${levelsSnapshot.size} módulos`);
-    
-    // 6. Actualizar contador en usuario
-    await setDoc(userRef, {
-      [`progreso.año${year}`]: {
-        completado: false,
-        nivelesCompletados: 0,
-        totalNiveles: levelsSnapshot.size,
-        fechaInicio: serverTimestamp(),
-        fechaFin: null,
-        promedio: 0,
-        certificadoGenerado: false
+        testsCompletados: 0,
+        testsAprobados: 0,
+        promedioGeneral: 0,
+        mejorPuntaje: 0,
+        peorPuntaje: 100,
+        tiempoTotal: 0 // en minutos
+      },
+      metadata: {
+        creadoEl: serverTimestamp(),
+        actualizadoEl: serverTimestamp()
       }
-    }, { merge: true });
-    
-    console.log(`✅ Contador actualizado en usuario`);
-    
-    return { 
-      success: true, 
-      totalModules: levelsSnapshot.size,
-      year: year 
     };
     
+    await setDoc(progressRef, progressData);
+    console.log(`✅ Progress inicializado para año ${year}`);
+    
+    // Si es año 1, también crear año 2 por defecto
+    if (year === 1) {
+      const progressYear2Ref = doc(db, "users", userId, "progress", "año2");
+      const progressYear2Data = {
+        userId: userId,
+        año: 2,
+        fechaCreacion: serverTimestamp(),
+        totalTests: 8,
+        tests: {},
+        resumen: {
+          completado: false,
+          testsCompletados: 0,
+          testsAprobados: 0,
+          promedioGeneral: 0,
+          mejorPuntaje: 0,
+          peorPuntaje: 100,
+          tiempoTotal: 0
+        },
+        metadata: {
+          creadoEl: serverTimestamp(),
+          actualizadoEl: serverTimestamp()
+        }
+      };
+      
+      await setDoc(progressYear2Ref, progressYear2Data);
+      console.log(`✅ Progress inicializado para año 2 también`);
+    }
+    
+    return true;
+    
   } catch (error) {
-    console.error('❌ Error inicializando progreso:', error);
-    return { success: false, error: error.message };
+    console.error(`❌ Error inicializando progress:`, error);
+    console.error('Detalles:', {
+      userId: userId,
+      tipoUserId: typeof userId,
+      year: year,
+      errorMessage: error.message,
+      errorStack: error.stack
+    });
+    throw error;
   }
 };
 
 /**
- * Inicializar progreso para todos los años de un estudiante
+ * Función para inicializar ambos años
  */
 export const initializeAllYearsProgress = async (userId) => {
-  const results = [];
-  
-  // Para año 1
-  const resultYear1 = await initializeStudentProgress(userId, 1);
-  results.push({ year: 1, ...resultYear1 });
-  
-  // Para año 2
-  const resultYear2 = await initializeStudentProgress(userId, 2);
-  results.push({ year: 2, ...resultYear2 });
-  
-  return results;
+  try {
+    console.log(`🏗️ Inicializando progress completo para: ${userId}`);
+    
+    // Inicializar ambos años
+    await initializeStudentProgress(userId, 1);
+    await initializeStudentProgress(userId, 2);
+    
+    console.log(`✅ Progress completo inicializado`);
+    return true;
+  } catch (error) {
+    console.error('❌ Error inicializando progress completo:', error);
+    throw error;
+  }
 };
 
 /**
- * Función para usar desde la consola del navegador
+ * Verifica si el progress existe y lo crea si no
  */
-if (typeof window !== 'undefined') {
-  window.initializeStudentProgress = initializeStudentProgress;
-  window.initializeAllYearsProgress = initializeAllYearsProgress;
-}
+export const ensureProgressExists = async (userId) => {
+  try {
+    console.log(`🔍 Verificando progress para: ${userId}`);
+    
+    // Verificar año 1
+    const year1Ref = doc(db, "users", userId, "progress", "año1");
+    const year1Doc = await getDoc(year1Ref);
+    
+    if (!year1Doc.exists()) {
+      console.log(`⚠️ Progress no existe. Creando...`);
+      await initializeAllYearsProgress(userId);
+      return { created: true };
+    }
+    
+    console.log(`✅ Progress ya existe`);
+    return { exists: true };
+    
+  } catch (error) {
+    console.error('❌ Error verificando progress:', error);
+    throw error;
+  }
+};

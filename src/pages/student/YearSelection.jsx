@@ -1,167 +1,258 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
-import Swal from 'sweetalert2';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../../services/firebase/config';
 import '../../styles/Seleccion.css';
 
 const YearSelection = () => {
-  const { currentUser, userData } = useContext(AuthContext);
+  const { currentUser, userData: contextUserData } = useContext(AuthContext);
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const [selectedLoading, setSelectedLoading] = useState(false);
+  const [localUserData, setLocalUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // Datos de los años disponibles (igual a la plantilla original)
-  const years = [
-    {
-      id: 1,
-      title: 'Primero de Bachillerato',
-      description: 'Accede a tus módulos, progreso académico y actividades asignadas.',
-      tag: 'BACHILLERATO',
-      path: '/dashboard'
-    },
-    {
-      id: 2,
-      title: 'Segundo de Bachillerato',
-      description: 'Continúa tu avance académico y revisa tus evaluaciones y certificados.',
-      tag: 'BACHILLERATO',
-      path: '/dashboard',
-      available: userData?.progreso?.año1?.completado || false
-    }
-  ];
-
-  const handleYearSelect = (year) => {
-    if (year.available === false) {
-      Swal.fire({
-        icon: 'warning',
-        title: 'Año bloqueado',
-        html: `
-          <p>Para acceder al <strong>Año 2</strong> debes completar primero el <strong>Año 1</strong>.</p>
-          <p class="text-muted mt-2">Completa todos los módulos del primer año para desbloquear el siguiente nivel.</p>
-        `,
-        confirmButtonColor: '#30297A',
-        confirmButtonText: 'Entendido'
-      });
-      return;
-    }
-
-    setLoading(true);
-
-    // Redirigir después de un breve delay
-    /* setTimeout(() => {
-      navigate(year.path, { 
-        state: { selectedYear: year.id }
-      });
-    }, 500); */
-    navigate('/dashboard', {
-      state: {
-        selectedYear: year.id,
-        yearTitle: year.title
+  // SOLUCIÓN: Cargar datos DIRECTAMENTE del documento principal
+  useEffect(() => {
+    const loadUserDataDirectly = async () => {
+      if (!currentUser) {
+        navigate('/login');
+        return;
       }
-    });
-  };
 
-  // Si no hay usuario, mostrar carga
-  if (!currentUser || !userData) {
+      console.log('🔍 Cargando datos DIRECTAMENTE para UID:', currentUser.uid);
+
+      try {
+        // 1. Cargar documento principal del usuario
+        const userRef = doc(db, 'users', currentUser.uid);
+        const userDoc = await getDoc(userRef);
+        
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          console.log('✅ Datos cargados de Firestore:', data);
+          console.log('📊 Progreso en documento:', data.progreso);
+          
+          // IMPORTANTE: Usar los datos DIRECTAMENTE de Firestore
+          setLocalUserData(data);
+        } else {
+          console.log('⚠️ Documento no existe, usando contexto');
+          // Si no existe en Firestore, usar datos del contexto
+          setLocalUserData(contextUserData);
+        }
+      } catch (error) {
+        console.error('❌ Error cargando datos:', error);
+        // Si hay error, usar datos del contexto
+        setLocalUserData(contextUserData);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (currentUser) {
+      loadUserDataDirectly();
+    }
+  }, [currentUser, navigate, contextUserData]);
+
+  // Mostrar carga
+  if (loading) {
     return (
-      <div className="loading-container">
-        <div className="spinner"></div>
-        <p>Cargando información del usuario...</p>
+      <div className="year-selection-container">
+        <div className="selector-wrapper" style={{ textAlign: 'center', padding: '60px' }}>
+          <div className="spinner-border text-primary" style={{ width: '3rem', height: '3rem' }} role="status">
+            <span className="visually-hidden">Cargando...</span>
+          </div>
+          <p className="mt-3">Cargando tus datos...</p>
+        </div>
       </div>
     );
   }
 
+  // Si no hay datos
+  if (!localUserData) {
+    return (
+      <div className="year-selection-container">
+        <div className="selector-wrapper" style={{ textAlign: 'center', padding: '60px' }}>
+          <h3>⚠️ No se pudieron cargar tus datos</h3>
+          <button 
+            className="btn btn-primary mt-3"
+            onClick={() => navigate('/dashboard', { state: { selectedYear: 1 } })}
+          >
+            Continuar con Año 1
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Obtener progreso DIRECTAMENTE del documento
+  const progresoAño1 = localUserData.progreso?.año1 || {};
+  
+  // ESTOS SON LOS DATOS QUE DEBE MOSTRAR (de tu imagen):
+  // nivelesCompletados: 4
+  // nivelesAprobados: 3  
+  // totalNiveles: 6
+  // completado: false
+  
+  const nivelesCompletados = progresoAño1.nivelesCompletados || 0;
+  const nivelesAprobados = progresoAño1.nivelesAprobados || 0;
+  const totalNiveles = progresoAño1.totalNiveles || 6;
+  const completado = progresoAño1.completado || false;
+  const porcentaje = totalNiveles > 0 ? Math.round((nivelesCompletados / totalNiveles) * 100) : 0;
+
+  console.log('🎯 DATOS A MOSTRAR EN PANTALLA:');
+  console.log('• Módulos completados:', nivelesCompletados);
+  console.log('• Módulos aprobados:', nivelesAprobados);
+  console.log('• Total módulos:', totalNiveles);
+  console.log('• Año completado:', completado);
+  console.log('• Porcentaje:', porcentaje + '%');
+
+  // Definir años disponibles
+  const years = [
+    {
+      id: 1,
+      number: 1,
+      title: 'Primero de Bachillerato',
+      description: 'Accede a tus módulos, progreso académico y actividades asignadas.',
+      tag: 'BACHILLERATO',
+      available: true // Siempre disponible
+    },
+    {
+      id: 2,
+      number: 2,
+      title: 'Segundo de Bachillerato',
+      description: 'Continúa tu avance académico y revisa tus evaluaciones y certificados.',
+      tag: 'BACHILLERATO',
+      // Solo disponible si Año 1 está COMPLETADO (completado === true)
+      available: completado
+    }
+  ];
+
+  const handleYearSelect = async (yearId) => {
+    setSelectedLoading(true);
+    
+    try {
+      // Guardar año seleccionado
+      if (currentUser) {
+        await updateDoc(doc(db, 'users', currentUser.uid), {
+          añoSeleccionado: yearId.toString(),
+          ultimoAcceso: new Date().toISOString()
+        });
+      }
+
+      // Redirigir
+      setTimeout(() => {
+        navigate('/dashboard', {
+          state: {
+            selectedYear: yearId,
+            yearTitle: yearId === 1 
+              ? 'Primero de Bachillerato' 
+              : 'Segundo de Bachillerato'
+          }
+        });
+      }, 300);
+
+    } catch (error) {
+      console.error('Error:', error);
+      setSelectedLoading(false);
+    }
+  };
+
   return (
     <div className="year-selection-container">
       <div className="selector-wrapper">
-
-        {/* HEADER - IDÉNTICO A LA PLANTILLA */}
+        
         <div className="selector-header">
           <h1>Selecciona tu año escolar</h1>
           <p>Accede a tu panel según el nivel académico asignado</p>
         </div>
 
-        {/* GRID DE TARJETAS - IDÉNTICO A LA PLANTILLA */}
         <div className="selector-grid">
-
-          {/* PRIMERO DE BACHILLERATO */}
-          <div
-            className="role-card"
-            onClick={() => handleYearSelect(years[0])}
-          >
-            <div className="level-circle">
-              1
-              <div className="level-tag">BACHILLERATO</div>
-            </div>
-
-            <div className="role-title">Primero de Bachillerato</div>
-            <div className="role-desc">
-              Accede a tus módulos, progreso académico y actividades asignadas.
-            </div>
-
-            <button
-              className="role-btn"
-              disabled={loading}
+          {years.map((year) => (
+            <div
+              key={year.id}
+              className={`role-card ${!year.available ? 'card-disabled' : ''}`}
+              onClick={() => !selectedLoading && year.available && handleYearSelect(year.id)}
+              style={{ 
+                cursor: selectedLoading || !year.available ? 'not-allowed' : 'pointer'
+              }}
             >
-              Ingresar a mi panel <span>→</span>
-            </button>
-          </div>
-
-          {/* SEGUNDO DE BACHILLERATO */}
-          <div
-            className={`role-card ${years[1].available === false ? 'card-disabled' : ''}`}
-            onClick={() => years[1].available !== false && handleYearSelect(years[1])}
-            style={{ cursor: years[1].available === false ? 'not-allowed' : 'pointer' }}
-          >
-            <div className="level-circle">
-              2
-              <div className="level-tag">BACHILLERATO</div>
-            </div>
-
-            <div className="role-title">Segundo de Bachillerato</div>
-            <div className="role-desc">
-              Continúa tu avance académico y revisa tus evaluaciones y certificados.
-            </div>
-
-            {/* Overlay para año bloqueado */}
-            {years[1].available === false && (
-              <div className="locked-overlay">
-                <div className="lock-icon">🔒</div>
-                <div className="lock-text">Completa el Año 1</div>
+              <div className="level-circle">
+                {year.number}
+                <div className="level-tag">{year.tag}</div>
               </div>
-            )}
 
-            <button
-              className="role-btn"
-              disabled={years[1].available === false || loading}
-              onClick={() => handleYearSelect(years[1])}
-            >
-              {loading ? 'Cargando...' : 'Ingresar a mi panel'} <span>→</span>
-            </button>
-          </div>
+              <div className="role-title">{year.title}</div>
+              <div className="role-desc">{year.description}</div>
 
+              {!year.available && (
+                <div className="locked-overlay">
+                  <div className="lock-icon">🔒</div>
+                  <div className="lock-text">Completa el Año 1 primero</div>
+                  <small style={{ marginTop: '5px', fontSize: '12px' }}>
+                    {totalNiveles - nivelesCompletados} módulos pendientes
+                  </small>
+                </div>
+              )}
+
+              <button
+                className="role-btn"
+                disabled={selectedLoading || !year.available}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleYearSelect(year.id);
+                }}
+              >
+                {selectedLoading ? 'Cargando...' : 'Ingresar a mi panel'} <span>→</span>
+              </button>
+            </div>
+          ))}
         </div>
 
-        {/* INFORMACIÓN DEL USUARIO (adicional) */}
+        {/* INFORMACIÓN DEL USUARIO - DATOS DIRECTOS DE FIRESTORE */}
         <div className="user-info-panel">
           <div className="user-badge">
-            <strong>👤 Estudiante:</strong> {userData.nombre || userData.usuario}
+            <strong>👤 Estudiante:</strong> {localUserData.nombre || localUserData.email}
           </div>
-          {userData.progreso?.año1 && (
-            <div className="progress-info">
-              <div className="progress-label">
-                Progreso Año 1: {userData.progreso.año1.nivelesCompletados}/{userData.progreso.año1.totalNiveles} módulos
-              </div>
-              <div className="progress-bar-container">
-                <div
-                  className="progress-fill"
-                  style={{
-                    width: `${(userData.progreso.año1.nivelesCompletados / userData.progreso.año1.totalNiveles) * 100}%`
-                  }}
-                ></div>
-              </div>
-            </div>
-          )}
-        </div>
+          
+          <div className="user-badge">
+            <strong>📧 Email:</strong> {localUserData.email}
+          </div>
 
+          {/* ESTA ES LA PARTE IMPORTANTE - MUESTRA 4/6 */}
+          <div className="progress-info">
+            <div className="progress-label">
+              <strong>Progreso Año 1:</strong> {nivelesCompletados}/{totalNiveles} módulos
+              {completado && (
+                <span style={{ color: '#28a745', marginLeft: '10px' }}>✓ COMPLETADO</span>
+              )}
+            </div>
+            <div className="progress-bar-container">
+              <div
+                className="progress-fill"
+                style={{
+                  width: `${porcentaje}%`,
+                  background: completado 
+                    ? 'linear-gradient(90deg, #28a745, #20c997)' 
+                    : 'linear-gradient(90deg, #4a6cf7, #6a11cb)'
+                }}
+              ></div>
+            </div>
+            
+            {/* Información adicional */}
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between',
+              fontSize: '12px',
+              color: '#666',
+              marginTop: '8px'
+            }}>
+              <span><strong>Módulos aprobados:</strong> {nivelesAprobados}</span>
+              {progresoAño1.promedioPuntaje > 0 && (
+                <span><strong>Promedio:</strong> {progresoAño1.promedioPuntaje}%</span>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
